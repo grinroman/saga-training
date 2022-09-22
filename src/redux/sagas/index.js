@@ -9,51 +9,54 @@ import {
     spawn, // делает так что сага ничего не знает о родителе => при ошибке не прекратит родительскую сагу, не блокирующая
     join,
     select,
+    all,
+    delay,
 } from 'redux-saga/effects';
-//вспомогательные функции которые создают простые объекты которы создают инструкции
-//которые выполняет сама redux saga middleware
-//take - ждать указанному middleWare указанного действия dispatch
 
-async function swappiGet(pattern) {
-    const request = await fetch(`http://swapi.dev/api/${pattern}`);
+import { loadBasicData } from './initialSagas';
+import pageLoaderSaga from './pageLoaderSaga';
 
-    const data = await request.json();
+// export function* saga2() {
+//     console.log('saga2');
+// }
 
-    return data;
-}
-
-export function* loadingPeople() {
-    const people = yield call(swappiGet, 'people'); // выполняет переданную функцию - если она вернёт promise то приостановит сагу до resolve'а
-    yield put({ type: 'SET_PEOPLE', payload: people.results });
-    return people;
-}
-
-export function* loadingPlanets() {
-    const planets = yield call(swappiGet, 'planets'); // выполняет переданную функцию - если она вернёт promise то приостановит сагу до resolve'а
-    yield put({ type: 'SET_PLANETS', payload: planets.results });
-}
-
-export function* workerSaga() {
-    //запускается после выполненного action - наша бизнес-логика
-    yield spawn(loadingPlanets); //2 запроса одновременно
-    const task = yield fork(loadingPeople); // если нам помимо диспатча нужно сделать что-то ещё
-    const people = yield join(task); // подождать пока тот наш запрос выполнится и забрать people
-}
-
-export function* watchLoadDataSaga() {
-    //следт за нашими actions
-    // while (true) {
-    //     yield take('CLICK'); //Ждём выполнения действия
-    //     yield workerSaga();
-    // }
-
-    yield takeEvery('LOAD_DATA', workerSaga); //приостанавливает выполнение саги пока не произойдёт диспатч в приложении
-    // takeLatest - последний вызов клика - работает с промисами
-    // takeLeading - берет первый и игнорт остальные
-}
+// export function* saga3() {
+//     console.log('saga3');
+// }
 
 export default function* rootSaga() {
     // создание корневого процесса
     //далее саги работаю как граф
-    yield fork(watchLoadDataSaga);
+    // yield [saga1(), saga2(), saga3()]; // параллельный запуск и рут будет заблокирован
+    //
+    // - если будет ошибка то сама рут сага не будет выполнятся
+    //yield [(fork(saga1), fork(saga2), fork(saga3))]; // fork предоставляет не блокирующий вызов
+    //=> код выполнится сразу после данного
+    //
+    // работает как предыдущий
+    // yield fork(saga1); auth
+    // yield fork(saga2); payment
+    // yield fork(saga3); users
+    //
+    // yield spawn(saga1); // исключаем прекращение работы корневой саги из-за ошибки 1-ой из саг
+    // yield spawn(saga2);
+    // yield spawn(saga3);
+
+    const sagas = [loadBasicData, pageLoaderSaga];
+
+    const retrySagas = sagas.map((saga) => {
+        return spawn(function* () {
+            while (true) {
+                try {
+                    yield call(saga);
+                    break;
+                } catch (error) {
+                    console.log(error);
+                }
+            }
+        });
+    });
+
+    yield all(retrySagas); //запустить все переданные эффекты параллельно и ждать их окончания.
+    // 1 из эффектов блокирующий => all  тоже
 }
